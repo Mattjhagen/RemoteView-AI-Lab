@@ -21,7 +21,7 @@ Open http://127.0.0.1:8000. The application reads `OLLAMA_BASE_URL` and `OLLAMA_
 
 The server never includes target content, target codes, or session IDs in AI requests. Session access is scoped to a random HttpOnly, SameSite cookie. Targets are omitted from all session API responses until reveal. SQLite data stays in the ignored `data/` folder. Clearing browser cookies loses access to those sessions.
 
-This baseline uses a small built-in pool of descriptive targets. It is a practice tool, not a scientific validation of remote viewing. The original master specification was unavailable in the empty repository; additional requirements need reconciliation against that specification.
+This baseline uses a small built-in pool of descriptive targets. It is a practice tool, not a scientific validation of remote viewing. The full master specification is now available. See docs/CONTINUATION.md for architecture gaps and the next implementation milestone.
 
 The server binds to localhost. This is a local personal application, without multi-user authentication or public hosting support. Local administrators and processes with filesystem access can read the database and target pool. The configured Ollama endpoint uses the user's private network; the application sends recorded impressions to it when guidance is requested.
 
@@ -31,3 +31,7 @@ The server binds to localhost. This is a local personal application, without mul
 python3 -m unittest discover -s tests -v
 node --check static/app.js
 ```
+
+## Session audit
+
+Observations are preserved exactly as entered. New session actions record append-only audit events; GET `/api/sessions/{id}/audit` returns the current owner's event history. Finalization records the transcript digest. Existing sessions are preserved without fabricated historical events. SQLite triggers reject audit updates and deletes; filesystem administrators remain trusted. See docs/ENVIRONMENT.md for the R510 sandbox diagnosis.

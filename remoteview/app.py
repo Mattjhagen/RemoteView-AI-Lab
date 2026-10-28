@@ -41,11 +41,23 @@ class Lab:
         self.lock = threading.RLock()
         self.db.executescript('''
         CREATE TABLE IF NOT EXISTS owners (id TEXT PRIMARY KEY, model TEXT);
+        CREATE TABLE IF NOT EXISTS audit_events (
+            sequence INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+            event TEXT NOT NULL, occurred_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            details TEXT NOT NULL);
+        CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit_events
+            BEGIN SELECT RAISE(ABORT, 'Audit events are append-only'); END;
+        CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit_events
+            BEGIN SELECT RAISE(ABORT, 'Audit events are append-only'); END;
         CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, owner TEXT NOT NULL,
             code TEXT NOT NULL, target TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'active',
             transcript TEXT NOT NULL DEFAULT '[]', finalized_at TEXT, digest TEXT);
         ''')
         self.db.commit()
+
+    def audit(self, sid, event, details=None):
+        self.db.execute('INSERT INTO audit_events(session_id,event,details) VALUES(?,?,?)',
+                        (sid, event, json.dumps(details or {}, sort_keys=True)))
 
     def ollama(self, path, payload=None):
         if not self.base_url:
@@ -98,6 +110,8 @@ class Lab:
                     sid = secrets.token_urlsafe(24)
                     self.db.execute('INSERT INTO sessions(id,owner,code,target) VALUES(?,?,?,?)',
                                     (sid, owner, secrets.token_hex(4).upper(), json.dumps(secrets.choice(TARGETS))))
+                    self.audit(sid, 'target_assigned')
+                    self.audit(sid, 'session_started')
                     return self.public(self.session(sid, owner))
                 return [self.public(r) for r in self.db.execute('SELECT * FROM sessions WHERE owner=? ORDER BY rowid DESC', (owner,))]
         parts = path.strip('/').split('/')
@@ -106,6 +120,9 @@ class Lab:
         sid = parts[2]
         with self.lock:
             row = self.session(sid, owner)
+            if method == 'GET' and len(parts) == 4 and parts[3] == 'audit':
+                return [dict(r) for r in self.db.execute(
+                    'SELECT sequence,event,occurred_at,details FROM audit_events WHERE session_id=? ORDER BY sequence', (sid,))]
             if method == 'GET' and len(parts) == 3:
                 return self.public(row)
             if method != 'POST' or len(parts) != 4:
@@ -116,20 +133,24 @@ class Lab:
                 if row['state'] == 'active':
                     raise ValueError('Finalize the transcript before revealing the target')
                 with self.db:
-                    self.db.execute("UPDATE sessions SET state='revealed' WHERE id=?", (sid,))
+                    if row['state'] != 'revealed':
+                        self.db.execute("UPDATE sessions SET state='revealed' WHERE id=?", (sid,))
+                        self.audit(sid, 'target_revealed')
             elif action == 'finalize':
                 if row['state'] != 'active' or not any(t['role'] == 'user' for t in transcript):
                     raise ValueError('Record impressions in an active session first')
                 digest = hashlib.sha256(row['transcript'].encode()).hexdigest()
                 with self.db:
                     self.db.execute("UPDATE sessions SET state='finalized', finalized_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), digest=? WHERE id=?", (digest, sid))
+                    self.audit(sid, 'transcript_finalized', {'digest': digest})
             elif action == 'impressions':
                 impression = body.get('text', '')
                 if row['state'] != 'active' or not isinstance(impression, str) or not impression.strip() or len(impression) > 8000:
                     raise ValueError('Enter 1–8000 characters in an active session')
-                transcript.append({'role': 'user', 'content': impression.strip()})
+                transcript.append({'role': 'user', 'content': impression})
                 with self.db:
                     self.db.execute('UPDATE sessions SET transcript=? WHERE id=?', (json.dumps(transcript), sid))
+                    self.audit(sid, 'observation_recorded', {'entry': len(transcript) - 1})
             elif action == 'guidance':
                 if row['state'] != 'active':
                     raise ValueError('This transcript is finalized')
@@ -155,6 +176,7 @@ class Lab:
                 raise ValueError('Session changed while guidance was loading. Please retry.')
             transcript.append({'role': 'assistant', 'content': content[:12000], 'offline': offline})
             self.db.execute('UPDATE sessions SET transcript=? WHERE id=?', (json.dumps(transcript), sid))
+            self.audit(sid, 'guidance_recorded', {'model': model, 'offline': offline})
             return self.public(self.session(sid, owner))
 
 

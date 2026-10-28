@@ -1,5 +1,8 @@
 import hashlib
 import json
+import sqlite3
+import tempfile
+from pathlib import Path
 import threading
 import unittest
 import urllib.error
@@ -90,6 +93,60 @@ class LabTests(unittest.TestCase):
         record = self.lab.act('GET', self.path, {}, 'alice')
         self.assertEqual(len(record['transcript']), 1)
         self.assertEqual(record['state'], 'finalized')
+
+    def test_exact_observations_and_append_only_audit(self):
+        text = '  Rough surface.\nMaybe stone?  '
+        self.assertEqual(self.act('impressions', {'text': text})['transcript'][0]['content'], text)
+        finalized = self.act('finalize')
+        self.act('reveal')
+        self.act('reveal')
+        events = self.lab.act('GET', self.path + '/audit', {}, 'alice')
+        self.assertEqual([e['event'] for e in events], [
+            'target_assigned', 'session_started', 'observation_recorded',
+            'transcript_finalized', 'target_revealed'])
+        self.assertEqual(json.loads(events[3]['details'])['digest'], finalized['digest'])
+        self.assertTrue(all(e['occurred_at'].endswith('Z') for e in events))
+        self.assertNotIn('target', json.loads(events[0]['details']))
+        with self.assertRaises(LookupError):
+            self.lab.act('GET', self.path + '/audit', {}, 'bob')
+        for statement in ('DELETE FROM audit_events', "UPDATE audit_events SET event='changed'"):
+            with self.assertRaises(sqlite3.IntegrityError):
+                self.lab.db.execute(statement)
+
+    def test_guidance_audit_and_failed_actions(self):
+        self.lab.ollama = Mock(side_effect=OSError('offline'))
+        self.act('guidance')
+        before = self.lab.act('GET', self.path + '/audit', {}, 'alice')
+        self.assertEqual(json.loads(before[-1]['details']),
+                         {'model': 'configured-model', 'offline': True})
+        with self.assertRaises(ValueError):
+            self.act('reveal')
+        self.assertEqual(before, self.lab.act('GET', self.path + '/audit', {}, 'alice'))
+
+    def test_existing_database_upgrade_preserves_records(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'legacy.sqlite3'
+            db = sqlite3.connect(path)
+            db.executescript("""
+                CREATE TABLE owners (id TEXT PRIMARY KEY, model TEXT);
+                CREATE TABLE sessions (id TEXT PRIMARY KEY, owner TEXT NOT NULL,
+                    code TEXT NOT NULL, target TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'active',
+                    transcript TEXT NOT NULL DEFAULT '[]', finalized_at TEXT, digest TEXT);
+                INSERT INTO owners VALUES ('alice', 'old-model');
+                INSERT INTO sessions(id,owner,code,target,transcript) VALUES
+                    ('legacy', 'alice', 'OLD', '{}', '[{"role":"user","content":"Original"}]');
+            """)
+            db.commit()
+            db.close()
+            for _ in range(2):
+                upgraded = Lab(path, 'http://unused.invalid', 'new-model')
+                try:
+                    record = upgraded.act('GET', '/api/sessions/legacy', {}, 'alice')
+                    self.assertEqual(record['transcript'][0]['content'], 'Original')
+                    self.assertEqual(upgraded.act('GET', '/api/sessions/legacy/audit', {}, 'alice'), [])
+                    self.assertEqual(upgraded.db.execute('SELECT model FROM owners').fetchone()[0], 'old-model')
+                finally:
+                    upgraded.db.close()
 
     def test_http_boundaries(self):
         server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
