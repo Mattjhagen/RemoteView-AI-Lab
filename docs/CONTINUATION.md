@@ -1,30 +1,29 @@
-# Specification alignment and next milestone
+# Specification alignment and next milestones
 
-The full specification supplied in the user's shared terminal is now available for planning. The current implementation is a local personal Python stdlib/SQLite app with static HTML/JS. It is not the requested FastAPI/PostgreSQL/Next.js architecture and must not be described as a completed research platform.
+This milestone extends the existing Python/SQLite and static HTML/JS application. It preserves its design, stored sessions, observation text, and audits. It does not migrate to FastAPI/PostgreSQL/Next.js or claim completion of the full master specification.
 
-Completed baseline: cookie-scoped sessions, random selection from five built-in descriptive practice targets, Ollama model discovery/selection, neutral guidance with offline fallback, transcript finalization/hash, explicit reveal. Follow-up adds exact observation preservation and transactionally recorded session audit events, with SQLite triggers rejecting updates/deletes. GET /api/sessions/{id}/audit returns only the current owner's event history without target answers. Existing rows receive no invented historical events. New events begin when updated code runs.
+Implemented: secure random human target selection, target-free Ollama guidance, chronological conversation history, exact observations, database-enforced transcript sealing/state transitions, explicit reveal, inference metadata/hashes, three one-shot AI experiment conditions, five-image blind ranking with withheld answers, human/AI comparisons, model/condition results, cumulative accuracy chart, 20% baseline and 95% Wilson intervals. Both existing and new functionality have automated coverage; see [AUDIT.md](AUDIT.md).
 
-Audit triggers protect ordinary application writes, not a filesystem administrator. Target data remains in the same process/database as inference orchestration. Payload omission tests do not establish service or credential isolation. No image target library, multi-user accounts/roles, AI-only conditions, blind ranking, scientific scoring, analytics, voice, or production deployment has been completed.
+Next milestones:
 
-Next implementation milestone:
+1. Expand the five illustrative stimuli into a licensed, diverse photographic pool with versioned manifests and candidate sampling rules. Preserve old trial stimuli and mappings.
+2. Separate the target vault and inference worker into processes/services with restricted credentials and negative authorization tests. Current target omission is at the payload/API boundary, not process isolation.
+3. Add authenticated participant/judge roles, independently assigned judges, experiment preregistration, and safeguards against repeated judging and optional stopping. Current bearer links permit self-judging and do not establish independence.
+4. Add durable jobs with explicit interrupted-trial recovery. Current inference requests are bounded and failed responses are recorded, but a process crash can leave a running record.
+5. Provide tested export/import and backup restoration before any future storage migration. Retain SQLite data, exact transcript bytes/hashes, and historical audit sequences.
+6. Reconcile remaining master requirements, including voice, production deployment, and the proposed multi-service architecture, as separately scoped work while preserving the current UI.
 
-1. Preserve existing SQLite sessions and create a tested import path before changing storage.
-2. Establish project-local FastAPI/Pydantic/SQLAlchemy/Alembic and Next.js/TypeScript/Tailwind structure. Keep localhost defaults; avoid occupied ports.
-3. Implement a target-vault API and separate inference worker with restricted credentials and negative authorization tests; never ship shared vault credentials to inference.
-4. Add PostgreSQL configuration and migrations. Discover existing server availability first; request approval before changing system services or databases outside this project.
-5. Add CREATED/ACTIVE/FINALIZED/REVEALED/SCORED transitions, password authentication and roles before adding judging or broader access.
-6. Continue with image import, one-shot AI experiments, five-choice judging, appropriate statistics, voice and native deployment documents. Track remaining master requirements explicitly.
+## Access
 
-## Native startup and access
-
-Run `cd /home/matt/RemoteView-AI-Lab && python3 -m remoteview.app` after stopping the existing project process in its original Codex terminal. Do not kill unrelated Python processes. Existing service on port 8000 is deliberately left alone by this milestone.
-
-From the Mac, use `ssh -N -L 18000:127.0.0.1:8000 r510`, then visit http://127.0.0.1:18000. This forwards access without firewall or reverse-proxy changes. Keep the tunnel open while using the app.
+The app continues to bind to 127.0.0.1:8000 unless `PORT` overrides it. Existing Mac access at http://localhost:18000 uses `ssh -N -L 18000:127.0.0.1:8000 r510`. No tunnel, firewall, Ollama, or unrelated service configuration is changed.
 
 ## Verification
 
-`python3 -m unittest discover -s tests -v`
+```sh
+python3 -m unittest discover -s tests -v
+node --check static/app.js
+npm ci
+npm run test:e2e
+```
 
-`node --check static/app.js`
-
-The live Ollama model listing was verified separately; automated guidance tests use mocks and do not establish paranormal ability or experimental results.
+The browser suite uses a disposable in-memory application database and deterministic Ollama responses. Real Ollama checks are separate and do not count as experimental results.
