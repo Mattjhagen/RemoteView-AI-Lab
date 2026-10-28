@@ -56,6 +56,15 @@ class Research:
           WHEN OLD.state IN ('completed','failed')
           BEGIN SELECT RAISE(ABORT, 'Completed experiments are immutable'); END;
         ''')
+        # Owner credentials rotate on authentication. Sealed content stays immutable while
+        # ownership associations can be transferred transactionally without rewriting results.
+        for table, trigger, condition in (
+            ('judgments', 'sealed_judgment', 'OLD.submitted_at IS NOT NULL'),
+            ('experiments', 'experiment_output_locked', "OLD.state IN ('completed','failed')")):
+            columns = [r[1] for r in lab.db.execute(f'PRAGMA table_info({table})') if r[1] != 'owner']
+            changes = ' OR '.join(f'NEW."{column}" IS NOT OLD."{column}"' for column in columns)
+            lab.db.execute(f'DROP TRIGGER IF EXISTS {trigger}')
+            lab.db.execute(f"CREATE TRIGGER {trigger} BEFORE UPDATE ON {table} WHEN {condition} AND ({changes}) BEGIN SELECT RAISE(ABORT, 'Sealed record is immutable'); END")
         lab.db.commit()
 
     def experiment(self, eid, owner):

@@ -1,0 +1,25 @@
+# INERT dedicated-connector example. Install only after explicit approval.
+[Unit]
+Description=Cloudflare Tunnel - RemoteView AI Lab (dedicated)
+Wants=network-online.target remoteview-ai.service
+After=network-online.target remoteview-ai.service
+
+[Service]
+Type=simple
+User=cloudflared-remoteview
+Group=cloudflared-remoteview
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate run --token-file /etc/cloudflared-remoteview/token
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

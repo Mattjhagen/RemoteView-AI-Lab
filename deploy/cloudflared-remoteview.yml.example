@@ -1,0 +1,16 @@
+# INERT EXAMPLE ONLY: never merge blindly into a shared tunnel or install during preparation.
+# Create a DEDICATED tunnel, credentials, and service after explicit operator approval.
+tunnel: REPLACE_WITH_NEW_TUNNEL_UUID
+credentials-file: /etc/cloudflared-remoteview/REPLACE_WITH_NEW_TUNNEL_UUID.json
+ingress:
+  - hostname: airemoteview.buzz
+    service: http://127.0.0.1:8000
+    originRequest:
+      httpHostHeader: airemoteview.buzz
+      disableChunkedEncoding: true
+      access:
+        required: true
+        teamName: REPLACE_WITH_ACCESS_TEAM_SUBDOMAIN
+        audTag:
+          - REPLACE_WITH_ACCESS_APPLICATION_AUD
+  - service: http_status:404

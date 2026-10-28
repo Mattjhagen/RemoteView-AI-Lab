@@ -1,0 +1,46 @@
+[Unit]
+Description=RemoteView AI Lab (loopback origin)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=remoteview-ai
+Group=remoteview-ai
+WorkingDirectory=/home/matt/RemoteView-AI-Lab
+EnvironmentFile=/etc/remoteview-ai.env
+Environment=SKIP_DOTENV=1
+Environment=PORT=8000
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/env PORT=8000 SKIP_DOTENV=1 REQUIRE_PUBLIC_CONFIG=1 /usr/bin/python3 -m remoteview.app
+ExecStartPost=/usr/bin/curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 2 http://127.0.0.1:8000/healthz
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/matt/RemoteView-AI-Lab/data
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+TasksMax=96
+MemoryMax=512M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=remoteview-ai
+
+[Install]
+WantedBy=multi-user.target

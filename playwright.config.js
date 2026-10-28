@@ -7,5 +7,8 @@ module.exports = defineConfig({
   use: {baseURL: 'http://127.0.0.1:18765', headless: true,
     launchOptions: {executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', args: ['--no-sandbox']},
     screenshot: 'only-on-failure'},
-  webServer: {command: 'python3 tests/browser_server.py', url: 'http://127.0.0.1:18765', reuseExistingServer: false, timeout: 10000},
+  webServer: [
+    {command: 'python3 tests/browser_server.py', url: 'http://127.0.0.1:18765', reuseExistingServer: false, timeout: 10000},
+    {command: 'python3 tests/browser_server.py --auth', url: 'http://127.0.0.1:18766', reuseExistingServer: false, timeout: 10000},
+  ],
 });

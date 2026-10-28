@@ -4,8 +4,11 @@ from pathlib import Path
 from http.server import ThreadingHTTPServer
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from remoteview.app import Lab, Handler
+from remoteview.security import Policy, password_hash
 
-lab = Lab(':memory:', 'http://unused.invalid', 'browser-test-model')
+auth_mode = '--auth' in sys.argv
+policy = Policy(password=password_hash('browser-test-only-password') if auth_mode else '', login_limit=100, rate_limit=1000)
+lab = Lab(':memory:', 'http://unused.invalid', 'browser-test-model', policy)
 
 def ollama(path, payload=None):
     if path == '/api/tags':
@@ -16,7 +19,7 @@ class BrowserHandler(Handler):
     def log_request(self, code='-', size='-'):
         pass
 
-server = ThreadingHTTPServer(('127.0.0.1', 18765), BrowserHandler)
+server = ThreadingHTTPServer(('127.0.0.1', 18766 if auth_mode else 18765), BrowserHandler)
 server.lab = lab
 print('Browser test server ready', flush=True)
 server.serve_forever()

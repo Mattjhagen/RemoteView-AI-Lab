@@ -1,13 +1,21 @@
 let current = null;
 let pending = false;
+let csrfToken = null;
 const $ = id => document.getElementById(id);
-async function api(path, body) {
+async function api(path, body, csrfRetried = false) {
+  if (body !== undefined && !csrfToken) await api('/api/auth');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 65000);
   try {
-    const response = await fetch(path, {signal: controller.signal, ...(body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})});
+    const response = await fetch(path, {signal: controller.signal, ...(body === undefined ? {} : {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken}, body: JSON.stringify(body)})});
     let data;
     try { data = await response.json(); } catch { throw new Error('The server returned an unreadable response. Please retry.'); }
+    if (response.status === 403 && data.error === 'CSRF token missing or invalid' && body !== undefined && !csrfRetried) {
+      await api('/api/auth');
+      return await api(path, body, true);
+    }
+    if (data.csrf_token) csrfToken = data.csrf_token;
+    if (response.status === 401) showLogin(true);
     if (!response.ok) throw new Error(data.error || 'Request failed. Please retry.');
     return data;
   } catch (error) {
@@ -241,9 +249,36 @@ $('judgeForm').onsubmit = event => {
     showJudgment(await api(`/api/judge/${encodeURIComponent(judgeToken)}`, {ranking}));
   });
 };
-if (judgeToken) {
-  document.querySelector('.mode-tabs').hidden = true; $('humanPanel').hidden = true; $('settingsToggle').hidden = true; $('judgePanel').hidden = false;
-  run(async () => showJudgment(await api(`/api/judge/${encodeURIComponent(judgeToken)}`)));
-} else {
-  run(async () => { await list(); await settings(); });
+function showLogin(required) {
+  $('loginPanel').hidden = !required;
+  if (required) {
+    for (const id of ['humanPanel', 'experimentPanel', 'dashboardPanel', 'judgePanel', 'settings']) $(id).hidden = true;
+    document.querySelector('.mode-tabs').hidden = true;
+    $('settingsToggle').hidden = true; $('logout').hidden = true;
+    // Don't leave private content in the page after expiry or logout.
+    for (const id of ['transcript', 'target', 'experimentResult', 'experimentHistory', 'trialHistory', 'comparisons', 'summary', 'candidates', 'judgeObservations', 'sessions']) $(id).replaceChildren();
+    $('impression').value = ''; $('seal').textContent = ''; $('judgeOutcome').textContent = '';
+    for (const id of ['accuracyChart', 'comparisonChart']) { const canvas = $(id); canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height); }
+    current = null; judgment = null;
+  }
 }
+async function initialize() {
+  const state = await api('/api/auth');
+  showLogin(state.login_required && !state.authenticated);
+  if (state.login_required && !state.authenticated) return;
+  $('logout').hidden = !state.login_required;
+  if (judgeToken) {
+    document.querySelector('.mode-tabs').hidden = true; $('humanPanel').hidden = true; $('settingsToggle').hidden = true; $('judgePanel').hidden = false;
+    showJudgment(await api(`/api/judge/${encodeURIComponent(judgeToken)}`));
+  } else {
+    document.querySelector('.mode-tabs').hidden = false; $('settingsToggle').hidden = false;
+    mode('human'); $('empty').hidden = false; $('workspace').hidden = true;
+    await list(); await settings();
+  }
+}
+$('loginForm').onsubmit = event => {
+  event.preventDefault();
+  run(async () => { const password = $('password').value; $('password').value = ''; await api('/api/login', {password}); await initialize(); }, 'Signing in…');
+};
+$('logout').onclick = () => run(async () => { await api('/api/logout', {}); location.reload(); });
+run(initialize);

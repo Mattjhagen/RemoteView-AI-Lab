@@ -27,3 +27,7 @@ npm run test:e2e
 ```
 
 The browser suite uses a disposable in-memory application database and deterministic Ollama responses. Real Ollama checks are separate and do not count as experimental results.
+
+## Deployment preparation update
+
+Authenticated HTTPS/proxy deployment controls, a health endpoint, resource limits and systemd/tunnel artifacts are now prepared. See [DEPLOYMENT.md](DEPLOYMENT.md) for the approval-gated cutover and [DEPLOYMENT_SECURITY.md](DEPLOYMENT_SECURITY.md) for findings and tests. No service or public route is activated by this milestone. The password gate does not implement the per-person participant/judge roles listed above.

@@ -155,7 +155,10 @@ class LabTests(unittest.TestCase):
         thread.start()
         base = f'http://127.0.0.1:{server.server_port}'
         try:
-            request = urllib.request.Request(base + '/api/sessions', data=b'{}', headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(base + '/api/auth') as response:
+                csrf_cookie = response.headers['Set-Cookie'].split(';', 1)[0]
+                csrf = json.load(response)['csrf_token']
+            request = urllib.request.Request(base + '/api/sessions', data=b'{}', headers={'Content-Type': 'application/json', 'Cookie': csrf_cookie, 'X-CSRF-Token': csrf})
             with urllib.request.urlopen(request) as response:
                 cookie = response.headers['Set-Cookie']
                 self.assertIn('HttpOnly', cookie)
