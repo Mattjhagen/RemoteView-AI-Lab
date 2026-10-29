@@ -499,7 +499,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.set_cookie('csrf', csrf)
                 return self.respond(200, {'authenticated': False, 'csrf_token': csrf})
             if not path.startswith('/api/'):
-                files = {'/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
+                files = {'/guide': ('guide.html', 'text/html; charset=utf-8'), '/': ('index.html', 'text/html; charset=utf-8'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css')}
                 if method != 'GET' or path not in files:
                     raise LookupError('Not found')
                 filename, mime = files[path]
