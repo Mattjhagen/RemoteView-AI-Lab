@@ -127,6 +127,8 @@ $('beginJudging').onclick = () => run(async () => {
 function experimentResult(trial) {
   const box = $('experimentResult'); box.replaceChildren();
   box.append(element('h3', `${trial.condition} · ${trial.state}`));
+  box.append(element('p', `Model: ${trial.model} · Temperature: ${trial.options.temperature} · Inference seed: ${trial.options.seed}`));
+  if (trial.state === 'invalid_response') box.append(element('p', 'Experiment completed technically, but the AI did not generate usable experimental impressions. This trial is excluded from accuracy scoring.'));
   if (trial.error) box.append(element('p', trial.error));
   if (trial.response) box.append(element('p', trial.response, 'entry preserve'));
   if (trial.judging) box.append(judgingLink(trial.judging));
@@ -135,7 +137,19 @@ function experimentResult(trial) {
   details.append(element('summary', 'Recorded model settings, prompts, timestamps, and hashes'), element('pre', JSON.stringify(trial, null, 2)));
   box.append(details);
 }
+let instructionDefaults;
+function restoreInstructions() {
+  $('systemPrompt').value = instructionDefaults.system;
+  $('userPrompt').value = $('condition').value === 'control' ? instructionDefaults.control : instructionDefaults.user;
+}
+$('restoreInstructions').onclick = () => run(async () => {
+  instructionDefaults = await api('/api/experiment-instructions'); restoreInstructions();
+});
+$('condition').onchange = () => { if (instructionDefaults) restoreInstructions(); };
 async function experiments() {
+  if (!instructionDefaults) {
+    instructionDefaults = await api('/api/experiment-instructions'); restoreInstructions();
+  }
   const trials = await api('/api/experiments');
   $('experimentHistory').replaceChildren();
   for (const trial of trials) {
@@ -148,7 +162,7 @@ async function experiments() {
 $('experimentForm').onsubmit = event => {
   event.preventDefault();
   run(async () => {
-    const body = {condition: $('condition').value, temperature: Number($('temperature').value)};
+    const body = {condition: $('condition').value, temperature: Number($('temperature').value), system_prompt: $('systemPrompt').value, user_prompt: $('userPrompt').value};
     if ($('seed').value !== '') body.seed = Number($('seed').value);
     experimentResult(await api('/api/experiments', body)); await experiments();
   }, 'Running a blinded AI experiment. Ollama may take up to 45 seconds…');
@@ -207,7 +221,7 @@ function drawComparisons(groups) {
 async function dashboard() {
   const data = await api('/api/dashboard');
   $('summary').replaceChildren();
-  for (const [label, value] of [['Scored trials', data.overall.n], ['First-place accuracy', percent(data.overall.accuracy)], ['Chance baseline', '20%'], ['Awaiting judging', data.pending_judgments], ['Completed AI trials', data.experiments.completed || 0], ['Failed AI trials', data.experiments.failed || 0], ['Running AI trials', data.experiments.running || 0]]) {
+  for (const [label, value] of [['Scored trials', data.overall.n], ['First-place accuracy', percent(data.overall.accuracy)], ['Chance baseline', '20%'], ['Awaiting judging', data.pending_judgments], ['Completed AI trials', data.experiments.completed || 0], ['Invalid AI responses', data.experiments.invalid_response || 0], ['Failed AI trials', data.experiments.failed || 0], ['Running AI trials', data.experiments.running || 0]]) {
     const metric = element('div', '', 'metric'); metric.append(element('strong', String(value)), element('span', label)); $('summary').append(metric);
   }
   $('comparisons').replaceChildren();

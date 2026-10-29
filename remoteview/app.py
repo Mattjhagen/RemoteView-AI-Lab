@@ -85,10 +85,13 @@ class Lab:
         self.research = Research(self, TARGETS)
         self.security = Security(self, policy or Policy())
 
-    def infer(self, model, messages, options=None):
+    def infer(self, model, messages, options=None, experimental=False):
         # Kept mockable through ollama for the existing integration tests.
         payload = inference_payload(model, messages, options)
         result = self.ollama('/api/chat', payload)
+        if experimental:
+            content = result.get('message', {}).get('content') if isinstance(result, dict) and isinstance(result.get('message'), dict) else None
+            return (content if isinstance(content, str) else json.dumps(result, ensure_ascii=False)), payload
         content = result['message']['content']
         if not isinstance(content, str) or not content.strip() or len(content) > 20000:
             raise ValueError('Invalid model response')
@@ -136,6 +139,9 @@ class Lab:
     def act(self, method, path, body, owner):
         if path == '/api/dashboard' and method == 'GET':
             return self.research.dashboard(owner)
+        if path == '/api/experiment-instructions' and method == 'GET':
+            from .research import EXPERIMENT_SYSTEM, EXPERIMENT_PROMPT, CONTROL_PROMPT
+            return {'system': EXPERIMENT_SYSTEM, 'user': EXPERIMENT_PROMPT, 'control': CONTROL_PROMPT}
         if path == '/api/experiments':
             if method == 'POST':
                 return self.research.create_experiment(body, owner)

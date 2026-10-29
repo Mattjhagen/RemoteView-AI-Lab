@@ -3,12 +3,56 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import re
 import secrets
 
 CONDITIONS = ('before', 'after', 'control')
-EXPERIMENT_SYSTEM = 'You are a participant in a blinded observation exercise. No target information is available. Return only your own observations. Do not claim factual knowledge of any hidden target.'
-EXPERIMENT_PROMPT = 'Record a short set of sensory impressions: shapes, textures, colors, movement, and spatial relationships. Avoid naming or guessing objects. Do not ask questions.'
+EXPERIMENT_SYSTEM = """You are participating in a blinded experimental task investigating whether language models can generate descriptions corresponding to hidden targets.
+
+You have no access to the target, candidate images, target descriptions, or identifying information.
+
+Your task is to generate a spontaneous, speculative description that can later be compared against an independently selected hidden target.
+
+You are not being asked to claim supernatural abilities or actual sensory perception.
+
+Treat this as an experimental exercise in unconstrained information generation.
+
+Do not explain your limitations, apologize, refuse merely because the target is hidden, or discuss the experimental procedure.
+
+Provide only your experimental impressions."""
+EXPERIMENT_PROMPT = """Generate five brief, spontaneous impressions about an unknown hidden target.
+
+Describe possible:
+
+1. Shapes and geometry
+2. Colors and lighting
+3. Textures and materials
+4. Movement or stillness
+5. Spatial relationships and environment
+
+Avoid naming specific objects or locations.
+
+Do not ask questions.
+
+Do not explain your reasoning.
+
+Output only the five impressions."""
 CONTROL_PROMPT = 'Write a short description of an imagined scene using shapes, textures, colors, movement, and spatial relationships. Do not ask questions.'
+
+
+def response_issue(response):
+    """Conservative, target-independent screening; never a measure of accuracy."""
+    if not isinstance(response, str) or not response.strip():
+        return 'Empty or malformed response'
+    if response.lstrip().startswith(('{', '[', '<')) or len(response) > 20000:
+        return 'Malformed response'
+    if re.search(r"as (?:an? )?(?:large )?(?:ai|language model)|i(?: am|’m|'m) sorry|i apolog|i (?:cannot|can't|can’t|do not have|lack)|unable to|no (?:ability|access) to|cannot (?:perceive|observe)|don't have (?:access|the ability)", response, re.I):
+        return 'Refusal or capability disclaimer'
+    words = re.findall(r"[^\W\d_]+", response.lower())
+    descriptive = re.search(r'curv|round|angular|shape|geometr|light|dark|bright|dim|color|colour|red|blue|green|gold|grey|gray|white|black|warm|cool|smooth|rough|soft|hard|textur|metal|wood|stone|glass|water|motion|mov|still|slow|flow|broad|narrow|wide|tall|flat|open|enclos|space|above|below|near|distan|horizontal|vertical|reflect|shadow|grain|mist|glow', response, re.I)
+    if len(words) < 5 or len(set(words)) < 4 or not descriptive:
+        return 'No meaningful descriptive observations detected'
+    return None
 
 
 def now():
@@ -53,14 +97,14 @@ class Research:
         CREATE TRIGGER IF NOT EXISTS experiment_no_delete BEFORE DELETE ON experiments
           BEGIN SELECT RAISE(ABORT, 'Experiments cannot be deleted'); END;
         CREATE TRIGGER IF NOT EXISTS experiment_output_locked BEFORE UPDATE ON experiments
-          WHEN OLD.state IN ('completed','failed')
+          WHEN OLD.state IN ('completed','failed','invalid_response')
           BEGIN SELECT RAISE(ABORT, 'Completed experiments are immutable'); END;
         ''')
         # Owner credentials rotate on authentication. Sealed content stays immutable while
         # ownership associations can be transferred transactionally without rewriting results.
         for table, trigger, condition in (
             ('judgments', 'sealed_judgment', 'OLD.submitted_at IS NOT NULL'),
-            ('experiments', 'experiment_output_locked', "OLD.state IN ('completed','failed')")):
+            ('experiments', 'experiment_output_locked', "OLD.state IN ('completed','failed','invalid_response')")):
             columns = [r[1] for r in lab.db.execute(f'PRAGMA table_info({table})') if r[1] != 'owner']
             changes = ' OR '.join(f'NEW."{column}" IS NOT OLD."{column}"' for column in columns)
             lab.db.execute(f'DROP TRIGGER IF EXISTS {trigger}')
@@ -105,8 +149,13 @@ class Research:
         except (OSError, ValueError, KeyError, TypeError, StopIteration):
             raise ValueError('The selected Ollama model is unavailable. Refresh model settings and retry.')
         eid = secrets.token_urlsafe(24)
-        messages = [{'role': 'system', 'content': EXPERIMENT_SYSTEM},
-                    {'role': 'user', 'content': CONTROL_PROMPT if condition == 'control' else EXPERIMENT_PROMPT}]
+        system_prompt = body.get('system_prompt', EXPERIMENT_SYSTEM)
+        user_prompt = body.get('user_prompt', CONTROL_PROMPT if condition == 'control' else EXPERIMENT_PROMPT)
+        for prompt in (system_prompt, user_prompt):
+            if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 12000:
+                raise ValueError('Instructions must contain 1–12000 characters')
+        messages = [{'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_prompt}]
         created = now()
         with self.lab.lock, self.lab.db:
             # Target choice and its timestamp are committed before inference begins.
@@ -119,7 +168,7 @@ class Research:
             self.lab.audit(eid, 'experiment_created', {'condition': condition})
             self.lab.db.execute('UPDATE experiments SET inference_started_at=? WHERE id=?', (now(), eid))
         try:
-            response, _ = self.lab.infer(model, messages, options)
+            response, _ = self.lab.infer(model, messages, options, experimental=True)
         except (OSError, ValueError, KeyError, TypeError):
             with self.lab.lock, self.lab.db:
                 self.lab.db.execute("UPDATE experiments SET state='failed', inference_completed_at=?, error=? WHERE id=?",
@@ -129,16 +178,20 @@ class Research:
                 return self.public_experiment(self.experiment(eid, owner))
         completed = now()
         response_hash = digest(response)
+        issue = response_issue(response)
         with self.lab.lock, self.lab.db:
             # After/control select an independent reference only after response bytes are sealed.
             selected_at = None
             if target is None:
                 target, selected_at = secrets.choice(self.targets), now()
-            self.lab.db.execute('''UPDATE experiments SET state='completed', response=?,response_hash=?,
+            self.lab.db.execute('''UPDATE experiments SET state=?, error=?, response=?,response_hash=?,
                 inference_completed_at=?,target=?,target_selected_at=COALESCE(target_selected_at,?) WHERE id=?''',
-                (response, response_hash, completed, json.dumps(target), selected_at, eid))
+                ('invalid_response' if issue else 'completed', issue, response, response_hash, completed, json.dumps(target), selected_at, eid))
             self.lab.audit(eid, 'inference_completed', {'response_hash': response_hash})
-            self.make_judgment(owner, target, experiment_id=eid)
+            if issue:
+                self.lab.audit(eid, 'invalid_response', {'reason': issue})
+            else:
+                self.make_judgment(owner, target, experiment_id=eid)
             return self.public_experiment(self.experiment(eid, owner))
 
     def make_judgment(self, owner, target, session_id=None, experiment_id=None):
@@ -207,7 +260,7 @@ class Research:
         with self.lab.lock:
             rows = [dict(r) for r in self.lab.db.execute('''SELECT j.hit,j.submitted_at,j.id,
               j.session_id,j.experiment_id,e.condition,e.model FROM judgments j LEFT JOIN experiments e
-              ON e.id=j.experiment_id WHERE j.owner=? AND j.submitted_at IS NOT NULL ORDER BY j.submitted_at''', (owner,))]
+              ON e.id=j.experiment_id WHERE j.owner=? AND j.submitted_at IS NOT NULL AND (j.experiment_id IS NULL OR e.state='completed') ORDER BY j.submitted_at''', (owner,))]
             for row in rows:
                 row['kind'] = 'AI' if row['experiment_id'] else 'Human'
             groups = {}

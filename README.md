@@ -38,22 +38,24 @@ When Ollama is unavailable, human guidance uses a labeled offline prompt. Record
 
 Before/after use identical target-free prompts. No candidate images, target descriptions, target IDs, or condition labels are sent to the model. Seeds control model sampling, never target assignment. Failed inference is recorded as a failed trial and excluded from scored accuracy. Failed trials cannot be silently rerun or overwritten; start a new trial.
 
-Every successful AI trial creates a blind judging assignment. Experiment history exposes the target and assignment timestamp only after ranking submission. The judge sees observations and five candidate images with opaque randomized IDs/order; participant type, condition, model, and answer are withheld in the judging view. A submitted ranking cannot be changed.
+Every valid AI trial creates a blind judging assignment. Empty, malformed, non-descriptive, and refusal/disclaimer responses are sealed as `invalid_response`, retain their complete response and hash, and receive no judging assignment or accuracy score. Request failures remain `failed`; no trial is silently retried. Validation is a conservative English-language heuristic, not a measure of correspondence or a guarantee of quality. Historical trials are not revalidated.
+
+Expand **Experimental Instructions** to edit the target-free system and user prompts or restore defaults. Changing condition restores the corresponding defaults; the imagined-scene control remains distinct. Exact submitted instructions are saved per trial. Instructions are never populated from targets, candidates, or judging data. Experiment history exposes the target and assignment timestamp only after ranking submission. The judge sees observations and five candidate images with opaque randomized IDs/order; participant type, condition, model, and answer are withheld in the judging view. A submitted ranking cannot be changed.
 
 ## Dashboard
 
-The dashboard shows experiment counts, pending rankings, scored human versus AI results, model/condition comparisons, trial history, a cumulative accuracy chart, the 20% chance baseline, and 95% Wilson score intervals. Unsubmitted/failed trials do not enter accuracy denominators. Results are scoped to the browser owner identity, including evaluations submitted by another browser using a judging link. [NIST describes the Wilson interval method](https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm); these intervals are descriptive and unadjusted for repeated comparisons.
+The dashboard shows experiment counts, pending rankings, scored human versus AI results, model/condition comparisons, trial history, a cumulative accuracy chart, the 20% chance baseline, and 95% Wilson score intervals. Unsubmitted/invalid/failed trials do not enter accuracy denominators. Results are scoped to the browser owner identity, including evaluations submitted by another browser using a judging link. [NIST describes the Wilson interval method](https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm); these intervals are descriptive and unadjusted for repeated comparisons.
 
 ## Tests
 
-Backend (44 tests; mocked inference, real HTTP boundaries):
+Backend (47 tests; mocked inference, real HTTP boundaries):
 
 ```sh
 python3 -m unittest discover -s tests -v
 node --check static/app.js
 ```
 
-Browser integration (7 tests; real application backend with deterministic Ollama responses, isolated in-memory database):
+Browser integration (9 tests; real application backend with deterministic Ollama responses, isolated in-memory database):
 
 ```sh
 npm ci
@@ -86,4 +88,4 @@ Prepared artifacts:
 
 `GET /healthz` returns only `{"status":"ok"}` when the database responds; it requires a trusted host but no login and makes no Ollama request. It is suitable for local systemd/tunnel-origin checks. All data APIs, model settings, inference, judging views/images, and ranking submission require login when configured. POST clients must fetch `/api/auth`, retain its cookies, and send the returned `csrf_token` as `X-CSRF-Token`; this applies to CLI clients too. Login rotates credentials while preserving record content. Password changes revoke existing logins on restart; local emergency revocation is available through `python3 -m remoteview.sessions revoke-all`.
 
-Current automated verification: **44 Python tests and seven browser integration tests**, covering the previous functionality plus login, expiry/logout, password rotation, owner migration/isolation, proxy spoofing, CSRF, request framing/size/deadline limits, throttling, worker bounds, HTTPS cookies, security headers, and multi-tab recovery. Google Chrome is used locally; no extra Ollama instance is installed.
+Current automated verification: **47 Python tests and nine browser integration tests**, covering the previous functionality plus login, expiry/logout, password rotation, owner migration/isolation, proxy spoofing, CSRF, request framing/size/deadline limits, throttling, worker bounds, HTTPS cookies, security headers, and multi-tab recovery. Google Chrome is used locally; no extra Ollama instance is installed.

@@ -13,6 +13,8 @@ lab = Lab(':memory:', 'http://unused.invalid', 'browser-test-model', policy)
 def ollama(path, payload=None):
     if path == '/api/tags':
         return {'models': [{'name': 'browser-test-model', 'digest': 'browser-model-digest'}, {'name': 'second-model', 'digest': 'second-digest'}]}
+    if payload and any(m['content'] == 'Test refusal response' for m in payload['messages']):
+        return {'message': {'content': "I'm sorry, but as an AI language model, I cannot observe a hidden target."}}
     return {'message': {'content': 'What else, if anything, do you notice?' if 'options' not in payload else 'Cool smooth curves and a broad horizontal shape.'}}
 lab.ollama = ollama
 class BrowserHandler(Handler):

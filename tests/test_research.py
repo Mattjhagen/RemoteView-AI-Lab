@@ -121,6 +121,49 @@ class ResearchTests(unittest.TestCase):
         self.assertEqual(dashboard['overall']['n'], 0)
         self.assertEqual(dashboard['experiments']['failed'], 1)
 
+    def test_invalid_responses_are_preserved_sealed_and_never_judged(self):
+        responses = ['', '   ', "I'm sorry, but as an AI language model, I do not have the ability to observe or record sensory impressions in real-time...", 'I cannot perceive the hidden target.', 'Hello, how can I help you today?', '1.\n2.\n3.\n4.\n5.', '{"shape": "smooth broad curves"}']
+        for response in responses:
+            with self.subTest(response=response):
+                self.lab.ollama.side_effect = lambda path, body=None: self.model_response(path) if path == '/api/tags' else {'message': {'content': response}}
+                trial = self.create('after')
+                self.assertEqual(trial['state'], 'invalid_response')
+                self.assertEqual(trial['response'], response)
+                self.assertEqual(trial['response_hash'], hashlib.sha256(response.encode()).hexdigest())
+                self.assertNotIn('judging', trial)
+                self.assertNotIn('target', trial)
+                with self.assertRaises(sqlite3.IntegrityError):
+                    self.lab.db.execute("UPDATE experiments SET state='completed' WHERE id=?", (trial['id'],))
+        data = self.lab.research.dashboard('owner')
+        self.assertEqual(data['experiments']['invalid_response'], len(responses))
+        self.assertEqual(data['overall']['n'], 0)
+        self.assertEqual(data['pending_judgments'], 0)
+        self.assertEqual(self.lab.ollama.call_count, len(responses) * 2)
+
+    def test_malformed_ollama_envelope_is_invalid_not_transport_failure(self):
+        for envelope in ({}, {'message': {'content': None}}, {'message': {'content': ['smooth', 'curved']}}):
+            self.lab.ollama.side_effect = lambda path, body=None: self.model_response(path) if path == '/api/tags' else envelope
+            trial = self.create()
+            self.assertEqual(trial['state'], 'invalid_response')
+            self.assertEqual(json.loads(trial['response']), envelope)
+            self.assertNotIn('judging', trial)
+
+    def test_custom_prompts_are_exact_and_target_free(self):
+        defaults = self.lab.act('GET', '/api/experiment-instructions', {}, 'owner')
+        self.assertIn('spontaneous, speculative', defaults['system'])
+        self.assertIn('five brief', defaults['user'])
+        for condition in ('before', 'after', 'control'):
+            system, user = '  Generate speculative impressions only.  ', 'Describe broad shapes and cool textures.\n'
+            trial = self.create(condition, system_prompt=system, user_prompt=user)
+            expected = [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]
+            self.assertEqual(trial['messages'], expected)
+            sent = self.lab.ollama.call_args.args[1]
+            self.assertEqual(sent['messages'], expected)
+            self.assertEqual(set(sent), {'model', 'messages', 'stream', 'options'})
+        for prompt in ('', ' ', None, [], 'a' * 12001):
+            with self.assertRaises(ValueError):
+                self.create(system_prompt=prompt)
+
     def test_blind_ranking_requires_full_permutation_and_is_final(self):
         trial = self.create()
         token = trial['judging']['token']

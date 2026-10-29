@@ -99,3 +99,37 @@ test('mobile modes and empty dashboard render without horizontal overflow', asyn
   await expect(page.locator('#intervalNote')).toContainText('no scored trials');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test('experimental instructions are editable, restored, and recorded with results', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', {name: 'AI experiments', exact: true}).click();
+  await page.getByText('Experimental Instructions', {exact: true}).click();
+  await expect(page.getByLabel('System prompt')).toHaveValue(/spontaneous, speculative/);
+  await page.getByLabel('User prompt').fill('Describe broad shapes and cool textures.');
+  await page.getByLabel('Inference seed (optional)').fill('42');
+  await page.getByRole('button', {name: 'Run AI experiment'}).click();
+  await expect(page.locator('#experimentResult h3')).toHaveText('before · completed');
+  await expect(page.locator('#experimentResult')).toContainText('Temperature: 0.7 · Inference seed: 42');
+  await page.locator('#experimentResult summary').click();
+  await expect(page.locator('#experimentResult pre')).toContainText('Describe broad shapes and cool textures.');
+  await page.getByRole('button', {name: 'Restore default instructions'}).click();
+  await expect(page.getByLabel('User prompt')).toHaveValue(/Generate five brief/);
+  await page.getByLabel('Condition', {exact: true}).selectOption('control');
+  await expect(page.getByLabel('User prompt')).toHaveValue(/imagined scene/);
+});
+
+
+test('invalid AI response is shown and excluded from judging and scoring', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', {name: 'AI experiments', exact: true}).click();
+  await page.getByText('Experimental Instructions', {exact: true}).click();
+  await page.getByLabel('User prompt').fill('Test refusal response');
+  await page.getByRole('button', {name: 'Run AI experiment'}).click();
+  await expect(page.locator('#experimentResult h3')).toHaveText('before · invalid_response');
+  await expect(page.locator('#experimentResult')).toContainText('This trial is excluded from accuracy scoring.');
+  await expect(page.locator('#experimentResult .entry')).toContainText("I'm sorry");
+  await expect(page.locator('#experimentResult a')).toHaveCount(0);
+  await page.getByRole('button', {name: 'Dashboard', exact: true}).click();
+  await expect(page.locator('#summary')).toContainText('Invalid AI responses');
+  await expect(page.locator('#trialHistory tbody tr')).toHaveCount(0);
+});
