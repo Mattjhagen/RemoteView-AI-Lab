@@ -2,14 +2,14 @@ const { test, expect } = require('@playwright/test');
 
 test('guide links, contents and keyboard navigation work without changing lab state', async ({ page, context }) => {
   await page.goto('/');
-  await page.getByRole('button', {name: '+ New session'}).click();
-  await page.getByLabel('Your impressions').fill('An unsaved observation');
+  await page.getByRole('button', {name: 'Start a session'}).click();
+  await page.getByLabel('Your observations').fill('An unsaved observation');
   const opened = context.waitForEvent('page');
   await page.getByRole('link', {name: /Beginner’s guide/}).click();
   const guide = await opened;
   await guide.waitForLoadState();
   await expect(guide).toHaveTitle('Beginner’s guide · RemoteView AI Lab');
-  await expect(page.getByLabel('Your impressions')).toHaveValue('An unsaved observation');
+  await expect(page.getByLabel('Your observations')).toHaveValue('An unsaved observation');
   for (const link of await guide.locator('.guide-toc a').all()) {
     const href = await link.getAttribute('href');
     await link.click();

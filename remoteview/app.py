@@ -132,6 +132,10 @@ class Lab:
     def public(self, row):
         result = {k: row[k] for k in ('id', 'code', 'state', 'finalized_at', 'digest')}
         result['transcript'] = json.loads(row['transcript'])
+        # Owner-scoped progress metadata only; never expose the answer before ranking.
+        assignment = self.db.execute('SELECT * FROM judgments WHERE session_id=?', (row['id'],)).fetchone()
+        if assignment:
+            result['judging'] = self.research.assignment(assignment)
         if row['state'] == 'revealed':
             result['target'] = json.loads(row['target'])
         return result

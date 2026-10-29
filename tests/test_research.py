@@ -202,6 +202,26 @@ class ResearchTests(unittest.TestCase):
         self.assertIn('target', revealed)
         self.assertEqual(revealed['transcript'][0]['content'], view['observations'])
 
+    def test_session_progress_survives_reload_without_disclosing_the_answer(self):
+        session, path, assignment = self.human()
+        view = self.lab.act('GET', path, {}, 'owner')
+        self.assertEqual(view['judging'], assignment)
+        self.assertIsNone(view['judging']['submitted_at'])
+        self.assertIsNone(view['judging']['hit'])
+        for field in ('target', 'answer', 'ranking', 'candidates'):
+            self.assertNotIn(field, view)
+            self.assertNotIn(field, view['judging'])
+        with self.assertRaises(LookupError):
+            self.lab.act('GET', path, {}, 'other')
+        self.assertEqual(self.lab.act('GET', '/api/sessions', {}, 'other'), [])
+        self.judge({'judging': assignment})
+        scored = self.lab.act('GET', path, {}, 'owner')
+        self.assertIsNotNone(scored['judging']['submitted_at'])
+        self.assertNotIn('target', scored)
+        self.assertEqual(scored['transcript'], view['transcript'])
+        revealed = self.lab.act('POST', path + '/reveal', {}, 'owner')
+        self.assertIn('target', revealed)
+
     def test_active_and_already_revealed_sessions_cannot_be_blind_judged(self):
         s = self.lab.act('POST', '/api/sessions', {}, 'owner')
         path = '/api/sessions/' + s['id']

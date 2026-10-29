@@ -187,6 +187,7 @@ class SecurityTests(unittest.TestCase):
         assignment = self.lab.act('POST', path + '/judging', {}, legacy_owner)
         view = self.lab.research.judge(assignment['token'])
         self.lab.research.judge(assignment['token'], [c['id'] for c in view['candidates']])
+        sealed = self.lab.act('GET', path, {}, legacy_owner)
         # Include a completed autonomous result to exercise the sealed-result owner-transfer path.
         self.lab.ollama = lambda url, body=None: {'models': [{'name': 'test-model'}]} if body is None else {'message': {'content': 'A smooth curve.'}}
         experiment = self.lab.act('POST', '/api/experiments', {}, legacy_owner)
